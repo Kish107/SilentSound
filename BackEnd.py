@@ -1,4 +1,4 @@
-from flask import Flask, json, request, render_template
+from flask import Flask, json, request
 import socket
 from threading import Thread
 import multiprocessing as mp
@@ -15,51 +15,74 @@ import model_2
 import DAL
 
 api = Flask(__name__)
-api.config['Debug'] = True
 CORS(api)
 
 # Constants
-file_min_max = 5  # Maximum length (Minutes) for a record
+file_len_max = 5  # Maximum length (Minutes) for a record
 packets_n = 1000 * 60  # about 60 sec
 N_max = packets_n * 64
 CAS_fs = 31250  # Hz
 sampwidth = 2  # bytes
 T_max = N_max / sampwidth / CAS_fs
 NUM_CHANNELS = 5
-chanel_list = list(range(NUM_CHANNELS))
-output_dic_template = dict([('algo_par{}'.format(i), -1.0) for i in range(1, 11)] +
-                           [('algo_par{}_conf'.format(i), 0.0) for i in range(1, 11)])
+NUM_PARAMETERS = 10
+channel_list = list(range(NUM_CHANNELS))
+output_dic_template = dict([('algo_par{}'.format(i + 1), -1.0) for i in range(NUM_PARAMETERS)] +
+                           [('algo_par{}_conf'.format(i + 1), 0.0) for i in range(NUM_PARAMETERS)])
 
+# Communication management
 data_feed_HOST = '127.0.0.1'  # all available interfaces
 data_feed_PORT = 5404  # arbitrary non privileged port
+
+# API status
 OK_STATUS = [{'Status': 'OK'}]
 N_OK_STATUS = [{'Status': 'Not OK'}]
 
-channel_queues = []
+# Channel recording
+channel_recorders = [None for _ in range(NUM_CHANNELS)]
+current_record_id = [0 for _ in range(NUM_CHANNELS)]
+channel_queues    = [mp.Queue() for _ in range(NUM_CHANNELS)]
 
 model_list = [model_1.Model1Runner, model_2.Model2Runner]
 
+#################################  ETC  #################################
+def get_timestamp():
+    return str(datetime.datetime.now()).replace(' ', 'T')
 
-################################  WEB  #################################
+def ChannelAndModel():
+    for channel in range(NUM_CHANNELS):
+        for model in model_list:
+            yield (channel, model)
+#########################################################################
+
+
+#################################  WEB  #################################
+
 
 @api.route('/GetAllChannels', methods=['GET'])
 @cross_origin(origin='*')
 def get_all_channels():
-    return json.dumps(chanel_list)
+    return json.dumps(channel_list)
 
 
 @api.route('/GetRecordStatus', methods=['GET'])
 @cross_origin(origin='*')
 def get_record_status():
     channel = int(request.args['Channel'])
-    isChannelRecording = [{'IsRecording': is_recording[channel]}]
-    return json.dumps(isChannelRecording)
+
+    if not channel_recorders[channel]:
+        return [{'IsRecording': 'False'}]
+
+    if not channel_recorders[channel].is_alive():
+        return [{'IsRecording': 'False'}]
+
+    return json.dumps([{'IsRecording': 'True'}])
 
 
 @api.route('/GetSummaryPanel', methods=['GET'])
 @cross_origin(origin='*')
 def get_summary_panel():
-    for channel in chanel_list:
+    for channel in channel_list:
         repo.recordTag.getLastTagByChannelId(channel)
 
     return json.dumps(OK_STATUS)
@@ -76,30 +99,13 @@ def get_model_data():
 @cross_origin(origin='*')
 def tag_recording():
     RecordID = int(request.args['RecordID'])
-    algo_par1 = int(request.args['algo_par1'])
-    algo_par2 = int(request.args['algo_par2'])
-    algo_par3 = int(request.args['algo_par3'])
-    algo_par4 = int(request.args['algo_par4'])
-    algo_par5 = int(request.args['algo_par5'])
-    algo_par6 = int(request.args['algo_par6'])
-    algo_par7 = int(request.args['algo_par7'])
-    algo_par8 = int(request.args['algo_par8'])
-    algo_par9 = int(request.args['algo_par9'])
-    algo_par10 = int(request.args['algo_par10'])
-    user_par1 = int(request.args['user_par1'])
-    user_par2 = int(request.args['user_par2'])
-    user_par3 = int(request.args['user_par3'])
-    user_par4 = int(request.args['user_par4'])
-    user_par5 = int(request.args['user_par5'])
-    user_par6 = int(request.args['user_par6'])
-    user_par7 = int(request.args['user_par7'])
-    user_par8 = int(request.args['user_par8'])
-    user_par9 = int(request.args['user_par9'])
-    user_par10 = int(request.args['user_par10'])
-    timestamp = str(datetime.datetime.now()).replace(' ', 'T')
-    repo.recordTag.insert(RecordID, algo_par1, user_par1, algo_par2, user_par2, algo_par3, user_par3, algo_par4,
-                          user_par4, algo_par5, user_par5, algo_par6, user_par6, algo_par7, user_par7, algo_par8,
-                          user_par8, algo_par9, user_par9, algo_par10, user_par10, timestamp)
+    pars = []
+
+    for i in range(NUM_PARAMETERS):
+        pars.append(float(request.args['algo_par' + str(i)]))
+        pars.append(float(request.args['user_par' + str(i)]))
+
+    repo.recordTag.insert(RecordID, *pars, get_timestamp())
     return json.dumps(OK_STATUS)
 
 
@@ -109,17 +115,24 @@ def start_record():
 
     channel = int(request.args['Channel'])
 
-    # Checking if recording was stopped because it ran for too long
-    if not channel_queues[channel].empty():
-        if channel_queues[channel].get() == 'Stopped':
-            is_recording[channel] = False
+    # If a recording process is being tracked
+    if not channel_recorders[channel]:
+        dir_path = repo.records.insert(channel, get_timestamp())
+        channel_recorders[channel] = mp.Process(target=writeChannel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
+        channel_recorders[channel].start()
+        current_record_id[channel] += 1
+        return json.dumps(OK_STATUS)
 
-    if is_recording[channel]:
-        return json.dumps(N_OK_STATUS)
+    # If a recording process is dead
+    if not channel_recorders[channel].is_alive():
+        dir_path = repo.records.insert(channel, get_timestamp())
+        channel_recorders[channel] = mp.Process(target=writeChannel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
+        channel_recorders[channel].start()
+        current_record_id[channel] += 1
+        return json.dumps(OK_STATUS)
 
-    channel_queues[channel].put('Start')
-
-    return json.dumps(OK_STATUS)
+    # Process already up
+    return json.dumps(N_OK_STATUS)
 
 
 @api.route('/StopRecord', methods=['POST'])
@@ -127,14 +140,19 @@ def start_record():
 def stop_record():
     channel = int(request.args['Channel'])
 
-    if not is_recording[channel]:
+    # Checking if a recording process is existing
+    if not channel_recorders[channel]:
         return json.dumps(N_OK_STATUS)
 
-    channel_queues[channel].put('Stop')
-    is_recording[channel] = False
+    # Letting the process stop quietly, while relieving the spot for a new recording process
+    else:
+        channel_queues[channel].put('Stop')
+        channel_recorders[channel] = None
+
     return json.dumps(OK_STATUS)
 
-############################################################################
+#########################################################################
+
 
 def get_meta_message(udp_raw):
     ret = {}
@@ -150,84 +168,57 @@ def data_feed(data_feed_socket):
         meta = get_meta_message(seg_raw)
         if meta['seg_num'] == 10:
             for i in range(5):
-                live_data_list[i][current_idx_list[i].value:current_idx_list[i].value + 64] = seg_raw[
-                                                                                              872 + i * 64:872 + (
-                                                                                                          i + 1) * 64]
+                live_data_list[i][current_idx_list[i].value:current_idx_list[i].value + 64] = seg_raw[872 + i * 64:872 + (i + 1) * 64]
                 current_idx_list[i].value += 64
                 current_idx_list[i].value %= 64
 
 
-def writeChannel(q, arr, index):
+def writeChannel(q, arr, index, dir_path, record_id):
     time.sleep(T_max)
-
     arr = np.frombuffer(arr, dtype='uint8')
     inner_repo = DAL._Repository()
+    os.makedirs(dir_path, exist_ok=True)
+    file_num = 0
 
     while True:
 
-        if q.empty():
-            pass
+        if not q.empty():
 
-        elif q.get() == 'Start':
-            timestamp = str(datetime.datetime.now()).replace(' ', 'T')
-            dir_path = inner_repo.records.insert(dir_path.split('\\')[-1], timestamp)
-            os.makedirs(dir_path, exist_ok=True)
-            file_num = 0
+            # User request
+            if 'Stop' == q.get():
+                inner_repo.records.update(record_id, get_timestamp())
+                break
 
-            while True:
+            # Quit after 2 hours
+            elif file_num * file_len_max > 120:
+                inner_repo.records.update(record_id, get_timestamp())
+                break
 
-                if q.empty():
-                    pass
+        wave_file = wave.open(os.path.join(dir_path, '{}.wav'.format(file_num)), "wb")
+        wave_file.setparams((1, 2, CAS_fs, 0, 'NONE', 'not compressed'))
+        curr_time = time.time()
 
-                else:
+        for _ in range(file_len_max):
+            raw = np.concatenate([arr[index.value:], arr[:index.value]])
+            wave_file.writeframesraw(raw)
+            curr_time += T_max
+            time.sleep(curr_time - time.time())
 
-                    if 'Stop' == q.get():
-                        timestamp = str(datetime.datetime.now()).replace(' ', 'T')
-                        inner_repo.records.update(dir_path.split('\\')[-1], timestamp)
-                        break
-
-                    elif file_num * file_min_max > 120:  # Quit after 2 hours
-                        timestamp = str(datetime.datetime.now()).replace(' ', 'T')
-                        inner_repo.records.update(dir_path.split('\\')[-1], timestamp)
-                        q.put('Stopped')
-                        break
-
-                wave_file = wave.open(os.path.join(dir_path, '{}.wav'.format(file_num)), "wb")
-                wave_file.setparams((1, 2, CAS_fs, 0, 'NONE', 'not compressed'))
-                curr_time = time.time()
-
-                for i in range(file_min_max):
-                    raw = np.concatenate([arr[index.value:], arr[:index.value]])
-                    wave_file.writeframesraw(raw)
-                    curr_time += T_max
-                    time.sleep(curr_time - time.time())
-
-                wave_file.close()
-                file_num += 1
+        wave_file.close()
+        file_num += 1
 
 
 def main():
     # Allocate processes
-    channel_process = []
-    model_process = [[] for i in range(NUM_CHANNELS)]
+    model_process = [[] for _ in range(NUM_CHANNELS)]
 
     # Allocate thread for data feed
     data_feed_thread = Thread(target=data_feed, args=(data_feed_socket,))
     data_feed_thread.start()
 
-    for i in range(NUM_CHANNELS):
-        channel_queues.append(mp.Queue())
-        channel_process.append(
-            mp.Process(target=writeChannel, args=(channel_queues[i], live_data_list[i], current_idx_list[i])))
-        channel_process[i].start()
-
-    for i in range(NUM_CHANNELS):
-
-        for model in model_list:
-            model_inst = model()
-            model_process[i].append(
-                mp.Process(target=model_inst.run, args=(model_output_list[i], live_data_list[i], current_idx_list[i])))
-            model_process[i][-1].start()
+    for channel, model in ChannelAndModel():
+        model_process[channel].append(mp.Process(target=model.run, args=(model_output_list[channel], live_data_list[channel], current_idx_list[channel])))
+        model_process[channel][-1].start()
 
     # Run interface with web
     api.run()
@@ -236,12 +227,12 @@ def main():
 if __name__ == '__main__':
     mp.freeze_support()
     repo = DAL._Repository()
+
     #   shared objects
     manager = mp.Manager()
     live_data_list = [mp.RawArray('b', N_max) for _ in range(5)]
     current_idx_list = [mp.RawValue('i', 0) for _ in range(5)]
     model_output_list = [manager.dict(output_dic_template) for _ in range(5)]
-    is_recording = [False for _ in range(NUM_CHANNELS)]
 
     # _Listen to the stream of data
     data_feed_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)

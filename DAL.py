@@ -6,26 +6,31 @@ class Channel(object):
     def __init__(self, conn):
         self._conn = conn
 
+##################### BUG ###########################
     def __init__(self, channel_ID, name, path):
         # self.channel_ID = channel_ID
         self.name = name
         self.path = path
-
+###################################################
 
 class _Channel():
     def __init__(self, conn):
         self._conn = conn
 
+##################### BUG ###########################
     def insert(self, Channel):
         self._conn.execute("""
                INSERT INTO Channel (id, name) VALUES (?, ?)
            """, [student.id, student.name])
 
+###################################################
+
+##################### BUG ###########################
     def __init__(self, channel_ID, name, path):
         # self.channel_ID = channel_ID
         self.name = name
         self.path = path
-
+###################################################
 
 class Record(object):
     def __init__(self, record_ID, channel_ID, start_time, end_time):
@@ -84,37 +89,24 @@ class _recordTag():
     def __init__(self, conn):
         self._conn = conn
 
-    def insert(self, record_ID, algo_par1, user_par1, algo_par2, user_par2, algo_par3, user_par3, algo_par4, user_par4,
-               algo_par5, user_par5, algo_par6, user_par6, algo_par7, user_par7, algo_par8, user_par8, algo_par9,
-               user_par9, algo_par10, user_par10, time_stamp):
-        self._conn.execute("""
-               INSERT INTO [dbo].[recordTag]
-           ([record_ID]
-           ,[algo_par1]
-           ,[user_par1]
-           ,[algo_par2]
-           ,[user_par2]
-           ,[algo_par3]
-           ,[user_par3]
-           ,[algo_par4]
-           ,[user_par4]
-           ,[algo_par5]
-           ,[user_par5]
-           ,[algo_par6]
-           ,[user_par6]
-           ,[algo_par7]
-           ,[user_par7]
-           ,[algo_par8]
-           ,[user_par8]
-           ,[algo_par9]
-           ,[user_par9]
-           ,[algo_par10]
-           ,[user_par10]
-           ,[time_stamp])
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           """, [record_ID, algo_par1, user_par1, algo_par2, user_par2, algo_par3, user_par3, algo_par4, user_par4,
-                 algo_par5, user_par5, algo_par6, user_par6, algo_par7, user_par7, algo_par8, user_par8, algo_par9,
-                 user_par9, algo_par10, user_par10, time_stamp])
+##################### SUGGEST ###########################
+    def insert(self, record_ID, pars, time_stamp):
+        parameter_string = '           ,[{}_par{}]\n'
+        insertion_string = '               INSERT INTO [dbo].[recordTag]\n([record_ID]\n'
+        for i in range(int(len(pars) / 2)):
+            insertion_string += parameter_string.format('algo', str(i + 1))
+            insertion_string += parameter_string.format('user', str(i + 1))
+
+        insertion_string += '           ,[time_stamp])\n     VALUES (' + record_ID
+
+        for par in pars:
+            insertion_string += '{}, '.format(str(par))
+
+        insertion_string += str(time_stamp) + ')\n           '
+
+        self._conn.execute(insertion_string)
+
+###########################################################
 
     def getLastTagByChannelId(self, channel_ID):
         mycursor = self._conn.cursor()
