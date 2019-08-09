@@ -45,9 +45,11 @@ channel_queues    = [mp.Queue() for _ in range(NUM_CHANNELS)]
 
 model_list = [model_1.Model1Runner, model_2.Model2Runner]
 
-#################################  ETC  #################################
+''' #################################  ETC  ################################# '''
+
 def get_timestamp():
     return str(datetime.datetime.now()).replace(' ', 'T')
+
 
 def ChannelAndModel():
     for channel in range(NUM_CHANNELS):
@@ -56,7 +58,7 @@ def ChannelAndModel():
 #########################################################################
 
 
-#################################  WEB  #################################
+''' #################################  WEB  ################################# '''
 
 
 @api.route('/GetAllChannels', methods=['GET'])
@@ -162,12 +164,12 @@ def get_meta_message(udp_raw):
     return ret
 
 
-def data_feed(data_feed_socket):
+def data_feed(sock):
     while 1:
-        seg_raw, add = data_feed_socket.recvfrom(1400)
+        seg_raw, add = sock.recvfrom(1400)
         meta = get_meta_message(seg_raw)
         if meta['seg_num'] == 10:
-            for i in range(5):
+            for i in range(NUM_CHANNELS):
                 live_data_list[i][current_idx_list[i].value:current_idx_list[i].value + 64] = seg_raw[872 + i * 64:872 + (i + 1) * 64]
                 current_idx_list[i].value += 64
                 current_idx_list[i].value %= 64
@@ -230,9 +232,9 @@ if __name__ == '__main__':
 
     #   shared objects
     manager = mp.Manager()
-    live_data_list = [mp.RawArray('b', N_max) for _ in range(5)]
-    current_idx_list = [mp.RawValue('i', 0) for _ in range(5)]
-    model_output_list = [manager.dict(output_dic_template) for _ in range(5)]
+    live_data_list = [mp.RawArray('b', N_max) for _ in range(NUM_CHANNELS)]
+    current_idx_list = [mp.RawValue('i', 0) for _ in range(NUM_CHANNELS)]
+    model_output_list = [manager.dict(output_dic_template) for _ in range(NUM_CHANNELS)]
 
     # _Listen to the stream of data
     data_feed_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
