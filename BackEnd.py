@@ -22,8 +22,8 @@ file_len_max = 5  # Maximum length (Minutes) for a record
 packets_n = 1000 * 60  # about 60 sec
 N_max = packets_n * 64
 CAS_fs = 31250  # Hz
-sampwidth = 2  # bytes
-T_max = N_max / sampwidth / CAS_fs
+sample_width = 2  # bytes
+T_max = N_max / sample_width / CAS_fs
 NUM_CHANNELS = 5
 NUM_PARAMETERS = 10
 channel_list = list(range(NUM_CHANNELS))
@@ -41,17 +41,18 @@ N_OK_STATUS = [{'Status': 'Not OK'}]
 # Channel recording
 channel_recorders = [None for _ in range(NUM_CHANNELS)]
 current_record_id = [0 for _ in range(NUM_CHANNELS)]
-channel_queues    = [mp.Queue() for _ in range(NUM_CHANNELS)]
+channel_queues = [mp.Queue() for _ in range(NUM_CHANNELS)]
 
 model_list = [model_1.Model1Runner, model_2.Model2Runner]
 
 ''' #################################  ETC  ################################# '''
 
+
 def get_timestamp():
     return str(datetime.datetime.now()).replace(' ', 'T')
 
 
-def ChannelAndModel():
+def channel_and_model():
     for channel in range(NUM_CHANNELS):
         for model in model_list:
             yield (channel, model)
@@ -120,7 +121,7 @@ def start_record():
     # If a recording process is being tracked
     if not channel_recorders[channel]:
         dir_path = repo.records.insert(channel, get_timestamp())
-        channel_recorders[channel] = mp.Process(target=writeChannel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
+        channel_recorders[channel] = mp.Process(target=write_channel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
         channel_recorders[channel].start()
         current_record_id[channel] += 1
         return json.dumps(OK_STATUS)
@@ -128,7 +129,7 @@ def start_record():
     # If a recording process is dead
     if not channel_recorders[channel].is_alive():
         dir_path = repo.records.insert(channel, get_timestamp())
-        channel_recorders[channel] = mp.Process(target=writeChannel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
+        channel_recorders[channel] = mp.Process(target=write_channel, args=(channel_queues[channel], live_data_list[channel], current_idx_list[channel], dir_path, current_record_id[channel]))
         channel_recorders[channel].start()
         current_record_id[channel] += 1
         return json.dumps(OK_STATUS)
@@ -157,11 +158,7 @@ def stop_record():
 
 
 def get_meta_message(udp_raw):
-    ret = {}
-    ret['seg_num'] = udp_raw[4]
-    ret['mess_num'] = int.from_bytes(udp_raw[20:24], 'little')
-    ret['size'] = len(udp_raw)
-    return ret
+    return {'seg_num': udp_raw[4], 'mess_num': int.from_bytes(udp_raw[20:24], 'little'), 'size': len(udp_raw)}
 
 
 def data_feed(sock):
@@ -175,7 +172,7 @@ def data_feed(sock):
                 current_idx_list[i].value %= 64
 
 
-def writeChannel(q, arr, index, dir_path, record_id):
+def write_channel(q, arr, index, dir_path, record_id):
     time.sleep(T_max)
     arr = np.frombuffer(arr, dtype='uint8')
     inner_repo = DAL._Repository()
@@ -218,7 +215,7 @@ def main():
     data_feed_thread = Thread(target=data_feed, args=(data_feed_socket,))
     data_feed_thread.start()
 
-    for channel, model in ChannelAndModel():
+    for channel, model in channel_and_model():
         model_process[channel].append(mp.Process(target=model.run, args=(model_output_list[channel], live_data_list[channel], current_idx_list[channel])))
         model_process[channel][-1].start()
 
