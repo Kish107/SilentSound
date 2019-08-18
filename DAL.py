@@ -1,7 +1,5 @@
 import pyodbc
 import atexit
-from os import environ
-
 
 class Channel(object):
     def __init__(self, conn):
@@ -142,10 +140,10 @@ class recordTag():
 
 class _Repository(object):
     def __init__(self):
-        self._conn = pyodbc.connect('Driver={ODBC Driver 17 for SQL Server};',
-                                    'Server={}\\SqlExpress;'.format(environ['COMPUTERNAME']),
-                                    'Database=psDB;',
-                                    'UID=db_user;',
+        self._conn = pyodbc.connect('Driver={ODBC Driver 17 for SQL Server};'
+                                    'Server=IEWIN7\SqlExpress;'
+                                    'Database=psDB;'
+                                    'UID=db_user;'
                                     'PWD=Aa123456')
         # self.Channel = _Channel(self._conn)
         self.records = _Records(self._conn)

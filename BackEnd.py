@@ -106,8 +106,14 @@ def get_summary_panel():
 @api.route('/GetModelData', methods=['GET'])
 @cross_origin(origin='*')
 def get_model_data():
-    channel = int(request.args['Channel'])
-    return json.dumps(list({str(key): float(model_output_list[channel][key])} for key in model_output_list[channel].keys()))
+    channel = int(request.args['Channel']) - 1
+    output_json = {}
+    for key in model_output_list[channel].keys():
+        if 'conf' in key:
+            continue
+
+        output_json[key] = {'Key' : key, 'Value': float(model_output_list[channel][key]), 'Conf' : float(model_output_list[channel][key + '_conf'])}
+    return json.dumps(output_json)
 
 
 @api.route('/TagRecording', methods=['POST'])
@@ -230,7 +236,8 @@ def main():
     data_feed_thread.start()
 
     for channel, model in channel_and_model():
-        model_process[channel].append(mp.Process(target=model.run, args=(model_output_list[channel], live_data_list[channel], current_idx_list[channel])))
+        m = model(model_output_list[channel])
+        model_process[channel].append(mp.Process(target=m.run, args=(live_data_list[channel], current_idx_list[channel])))
         model_process[channel][-1].start()
 
     # Run interface with web

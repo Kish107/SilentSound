@@ -3,19 +3,19 @@ import time
 
 
 class Model1Runner:
-    def __init__(self, out_dic, output_key):
+    def __init__(self, out_dic):
         self.name = 'model_1'
         self.t_predict = 30
         self.t_overlap = 10
         self.n_laps_predict = 5
         self.out_dic = out_dic
-        self.output_key = output_key
+        self.output_key = 'algo_par1'
 
     def run(self, live_chanel, live_idx):
         proba_list = [np.zeros((3,)) for _ in range(self.n_laps_predict)]
         curr_time = time.time()
         while True:
-            data = get_last_T_data(live_chanel, live_idx, self.t_predict)
+            data = get_last_T_data(self.t_predict)
             proba = predict_proba(data)
             proba_list.pop(0)
             proba_list.append(proba)
