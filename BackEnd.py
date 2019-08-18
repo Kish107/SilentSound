@@ -45,7 +45,19 @@ channel_queues = [mp.Queue() for _ in range(NUM_CHANNELS)]
 
 model_list = [model_1.Model1Runner, model_2.Model2Runner]
 
+record_tag_pars = []
+
 ''' #################################  ETC  ################################# '''
+
+
+def list_tagging_pars():
+    pars = ['record_ID']
+    for i in range(NUM_PARAMETERS):
+        pars.append('algo_par' + str(i))
+        pars.append('user_par' + str(i))
+
+    pars.append('time_stamp')
+    return pars
 
 
 def get_timestamp():
@@ -101,14 +113,16 @@ def get_model_data():
 @api.route('/TagRecording', methods=['POST'])
 @cross_origin(origin='*')
 def tag_recording():
-    RecordID = int(request.args['RecordID'])
-    pars = []
+
+    values = [int(request.args['RecordID'])]
 
     for i in range(NUM_PARAMETERS):
-        pars.append(float(request.args['algo_par' + str(i)]))
-        pars.append(float(request.args['user_par' + str(i)]))
+        values.append(float(request.args['algo_par' + str(i)]))
+        values.append(float(request.args['user_par' + str(i)]))
 
-    repo.recordTag.insert(RecordID, *pars, get_timestamp())
+    values.append(get_timestamp())
+
+    repo.recordTag.insert(record_tag_pars, values)
     return json.dumps(OK_STATUS)
 
 
@@ -208,8 +222,8 @@ def write_channel(q, arr, index, dir_path, record_id):
 
 
 def main():
-    # Allocate processes
     model_process = [[] for _ in range(NUM_CHANNELS)]
+    record_tag_pars = list_tagging_pars()
 
     # Allocate thread for data feed
     data_feed_thread = Thread(target=data_feed, args=(data_feed_socket,))
@@ -227,7 +241,7 @@ if __name__ == '__main__':
     mp.freeze_support()
     repo = DAL._Repository()
 
-    #   shared objects
+    # Shared objects
     manager = mp.Manager()
     live_data_list = [mp.RawArray('b', N_max) for _ in range(NUM_CHANNELS)]
     current_idx_list = [mp.RawValue('i', 0) for _ in range(NUM_CHANNELS)]

@@ -1,5 +1,6 @@
 import pyodbc
 import atexit
+from os import environ
 
 
 class Channel(object):
@@ -54,8 +55,8 @@ class _Records():
         # the expected value is the first element in the fetched row
         path = query_data.fetchone()[0]
         query_data.execute(""" SELECT IDENT_CURRENT('record')""")
-        id = query_data.fetchall()
-        return path + "\\" + str(id[0][0])
+        ID = query_data.fetchall()
+        return path + "\\" + str(ID[0][0])
 
     # self._conn.execute(""" SELECT IDENT_CURRENT('record')""")
 
@@ -89,24 +90,11 @@ class _recordTag():
     def __init__(self, conn):
         self._conn = conn
 
-##################### SUGGEST ###########################
-    def insert(self, record_ID, pars, time_stamp):
-        parameter_string = '           ,[{}_par{}]\n'
-        insertion_string = '               INSERT INTO [dbo].[recordTag]\n([record_ID]\n'
-        for i in range(int(len(pars) / 2)):
-            insertion_string += parameter_string.format('algo', str(i + 1))
-            insertion_string += parameter_string.format('user', str(i + 1))
-
-        insertion_string += '           ,[time_stamp])\n     VALUES (' + record_ID
-
-        for par in pars:
-            insertion_string += '{}, '.format(str(par))
-
-        insertion_string += str(time_stamp) + ')\n           '
-
-        self._conn.execute(insertion_string)
-
-###########################################################
+    def insert(self, params, values):
+        insertion_string = 'INSERT INTO [dbo].[recordTag]({}) VALUES ({})'
+        pars = ', '.join(list(map(lambda par: '[{}]'.format(par), params)))
+        vals = ', '.join(list(map(lambda val: '{}'.format(val), values)))
+        self._conn.execute(insertion_string.format(pars, vals))
 
     def getLastTagByChannelId(self, channel_ID):
         mycursor = self._conn.cursor()
@@ -154,10 +142,10 @@ class recordTag():
 
 class _Repository(object):
     def __init__(self):
-        self._conn = pyodbc.connect('Driver={ODBC Driver 17 for SQL Server};'
-                                    'Server=IEWIN7\SqlExpress;'
-                                    'Database=psDB;'
-                                    'UID=db_user;'
+        self._conn = pyodbc.connect('Driver={ODBC Driver 17 for SQL Server};',
+                                    'Server={}\\SqlExpress;'.format(environ['COMPUTERNAME']),
+                                    'Database=psDB;',
+                                    'UID=db_user;',
                                     'PWD=Aa123456')
         # self.Channel = _Channel(self._conn)
         self.records = _Records(self._conn)
